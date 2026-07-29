@@ -79,51 +79,41 @@ function ENT:PushTask(task)
 		end
 		self.m_TaskCallbacks[k][#self.m_TaskCallbacks[k] + 1] = task
 	end
-
-	self.m_ActiveTasks[task] = {}
-
-	self:RunCurrentTask(task, "OnStart")
 end
 
-function ENT:StartTask(task)
+function ENT:PopTask(task)
+	for event, callbacks in pairs(self.m_TaskCallbacks) do
+		for i = 1, #callbacks do
+			if callbacks[i] == task then
+				table.remove(callbacks, i)
+				break
+			end
+		end
+	end
+end
+
+function ENT:StartTask(task, data)
+	if self:IsTaskActive(task) then return end
+	data = data or {}
+	self.m_ActiveTasks[task] = data
 	self:PushTask(task)
+	self:RunCurrentTask(task, "OnStart")
 end
 
 function ENT:TaskComplete(task)
 	if not self:IsTaskActive(task) then return end
-
 	self:RunCurrentTask(task, "OnComplete")
-	self:RunCurrentTask(task, "OnEnd")
-
-	self:_TaskDone(task)
+	self:RunCurrentTask(task, "OnDelete")
+	self.m_ActiveTasks[task] = nil
+	self:PopTask(task)
 end
 
 function ENT:TaskFail(task)
 	if not self:IsTaskActive(task) then return end
-
 	self:RunCurrentTask(task, "OnFail")
-	self:RunCurrentTask(task, "OnEnd")
-
-	self:_TaskDone(task)
-end
-
-function ENT:_TaskDone(task)
+	self:RunCurrentTask(task, "OnDelete")
 	self.m_ActiveTasks[task] = nil
-
-	local data = self.m_TaskList[task]
-	if not data then return end
-
-	for k, v in pairs(data) do
-		if not isfunction(v) then continue end
-		local cbs = self.m_TaskCallbacks[k]
-		if not cbs then continue end
-
-		for i = #cbs, 1, -1 do
-			if cbs[i] == task then
-				table.remove(cbs, i)
-			end
-		end
-	end
+	self:PopTask(task)
 end
 
 function ENT:IsTaskActive(task)
