@@ -13,6 +13,7 @@ ENT.AaronBot = true
 ENT.ViewOffset = Vector(0, 0, 64)
 ENT.CrouchViewOffset = Vector(0, 0, 32)
 ENT.ViewPunchLength = 0.5
+ENT.ControlCameraOffset = Vector(-70, 10, 5)
 
 --[[
 	IdleActivityTranslations maps ACT_MP_* activities to the activity/sequence
@@ -46,6 +47,7 @@ local AddNetworkVar = function(type, slot, name)
 end
 
 AddNetworkVar("Entity", 0, "ActiveWeapon")
+AddNetworkVar("Entity", 1, "ControlPlayer")
 AddNetworkVar("Bool", 0, "Crouching")
 AddNetworkVar("Int", 0, "WeaponClip1")
 AddNetworkVar("Int", 1, "WeaponClip2")
@@ -89,13 +91,18 @@ function ENT:GetViewPunchAngles()
 end
 
 function ENT:HasWeapon()
-	return IsValid(self:GetActiveWeapon())
+	return IsValid(self:GetActiveWeapon()) and (CLIENT or IsValid(self:GetActiveLuaWeapon()))
 end
 
 function ENT:GetShootPos()
-	return self:GetPos() + (self:IsCrouching() and self.CrouchViewOffset or self.ViewOffset)
+	return self:LocalToWorld(self:IsCrouching() and self.CrouchViewOffset or self.ViewOffset)
 end
 
 function ENT:IsCrouching()
 	return self:GetCrouching()
+end
+ENT.Crouching = ENT.IsCrouching
+
+function ENT:Think()
+	self:RunTask("Think")
 end
