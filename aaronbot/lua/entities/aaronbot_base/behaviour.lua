@@ -27,17 +27,34 @@ function ENT:BehaveUpdate(interval)
 		self:SetupEyeAngles()
 		self:UpdateEnemies()
 
-		if self.BehaviourThread then
-			if coroutine.status(self.BehaviourThread) == "dead" then
-				self.BehaviourThread = nil
-				ErrorNoHalt("NEXTBOT:BehaviourCoroutine() has been finished!\n")
-			else
-				assert(coroutine.resume(self.BehaviourThread))
-			end
-		end
+		local ply = self:GetControlPlayer()
+		if IsValid(ply) then
+			if self:HasWeapon() then
+				local wep = self:GetActiveWeapon()
+				local clip1, clip2, maxclip1, maxclip2 = wep:Clip1(), wep:Clip2(), wep:GetMaxClip1(), wep:GetMaxClip2()
 
-		self:BehaviourThink()
-		self:RunTask("BehaveUpdate", interval)
+				if self:GetWeaponClip1() != clip1 then self:SetWeaponClip1(clip1) end
+				if self:GetWeaponClip2() != clip2 then self:SetWeaponClip2(clip2) end
+				if self:GetWeaponMaxClip1() != maxclip1 then self:SetWeaponMaxClip1(maxclip1) end
+				if self:GetWeaponMaxClip2() != maxclip2 then self:SetWeaponMaxClip2(maxclip2) end
+			end
+
+			self:BehaviourPlayerControlThink(ply)
+			self:RunTask("PlayerControlUpdate", interval, ply)
+			self.m_ControlPlayerOldButtons = self.m_ControlPlayerButtons
+		else
+			if self.BehaviourThread then
+				if coroutine.status(self.BehaviourThread) == "dead" then
+					self.BehaviourThread = nil
+					ErrorNoHalt("NEXTBOT:BehaviourCoroutine() has been finished!\n")
+				else
+					assert(coroutine.resume(self.BehaviourThread))
+				end
+			end
+
+			self:BehaviourThink()
+			self:RunTask("BehaveUpdate", interval)
+		end
 	end
 
 	self:SetupGesturePosture()
@@ -56,12 +73,64 @@ function ENT:DisableBehaviour()
 		return true
 	end
 
-	return GetConVar("ai_disabled"):GetBool() or self:RunTask("DisableBehaviour")
+	return GetConVar("ai_disabled"):GetBool() and not self:IsControlledByPlayer() or self:RunTask("DisableBehaviour")
 end
 
 function ENT:BehaviourThink()
 	-- Override in subclasses / use tasks for real AI.
 	-- Default: idle (no player-control host behaviour).
+end
+
+function ENT:BehaviourPlayerControlThink(ply)
+	local eyeang = ply:EyeAngles()
+	local forward, right = eyeang:Forward(), eyeang:Right()
+	local f = self:ControlPlayerKeyDown(IN_FORWARD) and 1 or self:ControlPlayerKeyDown(IN_BACK) and -1 or 0
+	local r = self:ControlPlayerKeyDown(IN_MOVELEFT) and 1 or self:ControlPlayerKeyDown(IN_MOVERIGHT) and -1 or 0
+
+	if f != 0 or r != 0 then
+		local eyeang = ply:EyeAngles()
+		if not self:IsUsingLadder() then eyeang.p = 0 end
+		eyeang.r = 0
+		local movedir = eyeang:Forward() * f - eyeang:Right() * r
+		self:Approach(self:GetPos() + movedir * 100)
+	end
+
+	if self:ControlPlayerKeyPressed(IN_JUMP) then
+		self:Jump()
+	end
+
+	if self:HasWeapon() then
+		local wep = self:GetActiveLuaWeapon()
+
+		if self[wep.Primary.Automatic and "ControlPlayerKeyDown" or "ControlPlayerKeyPressed"](self, IN_ATTACK) then
+			if wep:Clip1() <= 0 and wep:GetMaxClip1() > 0 then
+				self:WeaponReload()
+			else
+				self:WeaponPrimaryAttack()
+			end
+		end
+
+		if self[wep.Secondary.Automatic and "ControlPlayerKeyDown" or "ControlPlayerKeyPressed"](self, IN_ATTACK2) then
+			self:WeaponSecondaryAttack()
+		end
+
+		if self:ControlPlayerKeyPressed(IN_RELOAD) then
+			self:WeaponReload()
+		end
+	end
+
+	if self:ControlPlayerKeyPressed(IN_USE) then
+		local pos = self:GetShootPos()
+		local tr = util.TraceLine({start = pos, endpos = pos + forward * 72, filter = self})
+
+		if tr.Hit then
+			if self:CanPickupWeapon(tr.Entity) and not self:HasWeapon() then
+				self:SetupWeapon(tr.Entity)
+			else
+				tr.Entity:Input("Use", self, self)
+			end
+		end
+	end
 end
 
 function ENT:CapabilitiesAdd(cap)
