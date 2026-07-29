@@ -2,10 +2,6 @@ AddCSLuaFile("cl_init.lua")
 AddCSLuaFile("shared.lua")
 include("shared.lua")
 
---[[-------------------------------------------------------
-	NEXTBOT Settings
---]]-------------------------------------------------------
-
 ENT.Model = "models/player/combine_super_soldier.mdl"
 ENT.DefaultWeapon = nil
 ENT.SpawnHealth = 100
@@ -156,19 +152,22 @@ function ENT:DissolveEntity(ent)
 	ent:AddFlags(FL_DISSOLVING)
 end
 
--- Includes (will be created/updated next)
 include("motion.lua")
 include("weapons.lua")
 include("enemy.lua")
 include("behaviour.lua")
+AddCSLuaFile("cl_playercontrol.lua")
+AddCSLuaFile("drive.lua")
+include("drive.lua")
+include("playercontrol.lua")
 include("nodegraph_path.lua")
+AddCSLuaFile("tasks.lua")
 include("tasks.lua")
 
 function ENT:SetCondition(condition) self.m_Conditions[condition] = true end
 function ENT:HasCondition(condition) return self.m_Conditions[condition] or false end
 function ENT:ClearCondition(condition) self.m_Conditions[condition] = nil end
 
--- NPC Stubs
 function ENT:ConditionName(condition) return "" end
 function ENT:ClearSchedule() end
 function ENT:GetCurrentSchedule() return SCHED_NONE end
@@ -187,7 +186,6 @@ function ENT:AddRelationship(str)
 end
 function ENT:Disposition(ent) return self:GetRelationship(ent) end
 
--- HACK for IsNPC
 local meta = FindMetaTable("Entity")
 if not meta.aaronbot_IsNPC then
 	meta.aaronbot_IsNPC = meta.IsNPC
