@@ -16,26 +16,17 @@ for k, v in pairs(EngineAnalogs) do EngineAnalogsReverse[v] = k end
 
 --[[------------------------------------
 	Holdtype for nextbot animations.
-	ARC9 exposes SWEP.HoldTypeNPC (and related fields) — prefer those
-	instead of GetHoldType(), which often returns generic "ar2".
+	Prefer SWEP.HoldType (ARC9 always sets it); GetHoldType() often returns "ar2".
 --]]------------------------------------
 function ENT:ResolveWeaponHoldType(wep)
 	if not IsValid(wep) then return "normal" end
 
-	-- Explicit override for any weapon
 	if isstring(wep.AaronBotHoldType) and wep.AaronBotHoldType ~= "" then
 		return wep.AaronBotHoldType
 	end
 
-	-- ARC9 / SWEP fields (HoldTypeNPC is meant for NPCs/nextbots)
-	if isstring(wep.HoldTypeNPC) and wep.HoldTypeNPC ~= "" then
-		return wep.HoldTypeNPC
-	end
 	if isstring(wep.HoldType) and wep.HoldType ~= "" then
 		return wep.HoldType
-	end
-	if isstring(wep.HoldTypeSights) and wep.HoldTypeSights ~= "" then
-		return wep.HoldTypeSights
 	end
 
 	local ht = wep:GetHoldType()
@@ -52,7 +43,6 @@ function ENT:ApplyWeaponHoldType(wep)
 
 	local ht = self:ResolveWeaponHoldType(wep)
 
-	-- If this is a lua analog, also check the parent engine/scripted weapon
 	local ownerWep = self:GetActiveWeapon()
 	if IsValid(ownerWep) and ownerWep ~= wep then
 		local ht2 = self:ResolveWeaponHoldType(ownerWep)
@@ -155,7 +145,6 @@ function ENT:SetupWeapon(wep)
 	ProtectedCall(function() actwep:OwnerChanged() end)
 	ProtectedCall(function() actwep:Equip(self) end)
 
-	-- Re-apply after Equip (some bases reset holdtype there)
 	self:ApplyWeaponHoldType(actwep)
 
 	return actwep
