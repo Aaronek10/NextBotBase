@@ -18,5 +18,6 @@ function ENT:DrawTranslucent()
 	self:Draw()
 end
 
--- Player control client side will be added with playercontrol files
+include("cl_playercontrol.lua")
+include("drive.lua")
 include("tasks.lua")
