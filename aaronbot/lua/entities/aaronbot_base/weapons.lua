@@ -14,89 +14,33 @@ local EngineAnalogs = {
 local EngineAnalogsReverse = {}
 for k, v in pairs(EngineAnalogs) do EngineAnalogsReverse[v] = k end
 
--- Class-name heuristics when base/ARC9 returns generic "ar2" holdtype
-local HoldTypeClassPatterns = {
-	{pattern = "pistol", hold = "pistol"},
-	{pattern = "glock", hold = "pistol"},
-	{pattern = "usp", hold = "pistol"},
-	{pattern = "m9", hold = "pistol"},
-	{pattern = "m1911", hold = "pistol"},
-	{pattern = "deagle", hold = "revolver"},
-	{pattern = "revolver", hold = "revolver"},
-	{pattern = "python", hold = "revolver"},
-	{pattern = "357", hold = "revolver"},
-	{pattern = "shotgun", hold = "shotgun"},
-	{pattern = "spas", hold = "shotgun"},
-	{pattern = "nova", hold = "shotgun"},
-	{pattern = "pump", hold = "shotgun"},
-	{pattern = "smg", hold = "smg"},
-	{pattern = "mp5", hold = "smg"},
-	{pattern = "mp7", hold = "smg"},
-	{pattern = "ump", hold = "smg"},
-	{pattern = "mac10", hold = "smg"},
-	{pattern = "p90", hold = "smg"},
-	{pattern = "rpg", hold = "rpg"},
-	{pattern = "rocket", hold = "rpg"},
-	{pattern = "launcher", hold = "rpg"},
-	{pattern = "crossbow", hold = "crossbow"},
-	{pattern = "knife", hold = "melee"},
-	{pattern = "crowbar", hold = "melee"},
-	{pattern = "stunstick", hold = "melee"},
-	{pattern = "baton", hold = "melee"},
-	{pattern = "melee", hold = "melee"},
-}
-
 --[[------------------------------------
-	Resolves a sensible player-model holdtype.
-	ARC9 (and some bases) often report HoldType "ar2" for everything,
-	including pistols — that breaks nextbot attack/idle animations.
+	Holdtype for nextbot animations.
+	ARC9 exposes SWEP.HoldTypeNPC (and related fields) — prefer those
+	instead of GetHoldType(), which often returns generic "ar2".
 --]]------------------------------------
 function ENT:ResolveWeaponHoldType(wep)
 	if not IsValid(wep) then return "normal" end
 
-	local class = string.lower(wep:GetClass() or "")
-	local printname = string.lower(tostring(wep.PrintName or wep.PrintNameReal or ""))
-
-	-- Explicit override on weapon (addon authors can set this)
+	-- Explicit override for any weapon
 	if isstring(wep.AaronBotHoldType) and wep.AaronBotHoldType ~= "" then
 		return wep.AaronBotHoldType
 	end
 
-	-- ARC9: prefer hip-fire / dedicated hold types when available
-	if wep.ARC9 then
-		local candidates = {}
-		if wep.GetValue then
-			candidates[#candidates + 1] = wep:GetValue("HoldTypeHipFire", true)
-			candidates[#candidates + 1] = wep:GetValue("HoldTypeSights", true)
-			candidates[#candidates + 1] = wep:GetValue("HoldType", true)
-		end
-		candidates[#candidates + 1] = wep.HoldTypeHipFire
-		candidates[#candidates + 1] = wep.HoldTypeSights
-		candidates[#candidates + 1] = wep.HoldType
-
-		for _, ht in ipairs(candidates) do
-			if isstring(ht) and ht ~= "" and ht ~= "ar2" and ht ~= "normal" then
-				return ht
-			end
-		end
+	-- ARC9 / SWEP fields (HoldTypeNPC is meant for NPCs/nextbots)
+	if isstring(wep.HoldTypeNPC) and wep.HoldTypeNPC ~= "" then
+		return wep.HoldTypeNPC
+	end
+	if isstring(wep.HoldType) and wep.HoldType ~= "" then
+		return wep.HoldType
+	end
+	if isstring(wep.HoldTypeSights) and wep.HoldTypeSights ~= "" then
+		return wep.HoldTypeSights
 	end
 
-	-- Class / printname heuristics (covers ARC9 pack names)
-	local haystack = class .. " " .. printname
-	for _, entry in ipairs(HoldTypeClassPatterns) do
-		if string.find(haystack, entry.pattern, 1, true) then
-			return entry.hold
-		end
-	end
-
-	-- Engine / SWEP reported holdtype
 	local ht = wep:GetHoldType()
 	if isstring(ht) and ht ~= "" then
 		return ht
-	end
-
-	if isstring(wep.HoldType) and wep.HoldType ~= "" then
-		return wep.HoldType
 	end
 
 	return "ar2"
@@ -107,23 +51,12 @@ function ENT:ApplyWeaponHoldType(wep)
 	if not IsValid(wep) then return end
 
 	local ht = self:ResolveWeaponHoldType(wep)
-	-- Also resolve from parent engine weapon if this is an analog
+
+	-- If this is a lua analog, also check the parent engine/scripted weapon
 	local ownerWep = self:GetActiveWeapon()
 	if IsValid(ownerWep) and ownerWep ~= wep then
 		local ht2 = self:ResolveWeaponHoldType(ownerWep)
-		-- Prefer more specific heuristic over generic ar2 from either side
-		if ht == "ar2" and ht2 ~= "ar2" then
-			ht = ht2
-		elseif ht2 ~= "ar2" and ht2 ~= "normal" then
-			-- Prefer class-heuristic from engine weapon class name
-			local c = string.lower(ownerWep:GetClass() or "")
-			for _, entry in ipairs(HoldTypeClassPatterns) do
-				if string.find(c, entry.pattern, 1, true) then
-					ht = entry.hold
-					break
-				end
-			end
-		end
+		if ht2 and ht2 ~= "" then ht = ht2 end
 	end
 
 	if wep.SetHoldType then wep:SetHoldType(ht) end
@@ -201,7 +134,6 @@ function ENT:SetupWeapon(wep)
 	end
 
 	local actwep = self:GetActiveLuaWeapon()
-	-- Resolve holdtype (fixes ARC9 reporting "ar2" for pistols etc.)
 	self:ApplyWeaponHoldType(actwep)
 
 	self:ReloadWeaponData()
@@ -223,7 +155,7 @@ function ENT:SetupWeapon(wep)
 	ProtectedCall(function() actwep:OwnerChanged() end)
 	ProtectedCall(function() actwep:Equip(self) end)
 
-	-- Re-apply after Equip — some bases (ARC9) reset HoldType in Equip/Deploy
+	-- Re-apply after Equip (some bases reset holdtype there)
 	self:ApplyWeaponHoldType(actwep)
 
 	return actwep
@@ -321,7 +253,6 @@ function ENT:WeaponPrimaryAttack()
 	local wep = self:GetActiveLuaWeapon()
 	local data = self.m_WeaponData.Primary
 
-	-- Keep holdtype correct right before gesture (ARC9 may overwrite it)
 	self:ApplyWeaponHoldType(wep)
 
 	ProtectedCall(function() wep:NPCShoot_Primary(self:GetShootPos(), self:GetAimVector()) end)
