@@ -64,6 +64,29 @@ function ENT:BehaviourThink()
 	-- Default: idle.
 end
 
+-- Stubs: player control removed. Motion may still call these; always AI path.
+function ENT:IsControlledByPlayer()
+	return false
+end
+
+function ENT:GetControlPlayer()
+	return NULL
+end
+
+function ENT:ControlPlayerKeyDown(key)
+	return false
+end
+
+function ENT:ControlPlayerKeyPressed(key)
+	return false
+end
+
+function ENT:StartControlByPlayer(ply)
+end
+
+function ENT:StopControlByPlayer()
+end
+
 function ENT:CapabilitiesAdd(cap)
 	self.m_Capabilities = bit.bor(self.m_Capabilities, cap)
 end
