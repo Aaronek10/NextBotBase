@@ -13,7 +13,6 @@ ENT.AaronBot = true
 ENT.ViewOffset = Vector(0, 0, 64)
 ENT.CrouchViewOffset = Vector(0, 0, 32)
 ENT.ViewPunchLength = 0.5
-ENT.ControlCameraOffset = Vector(-70, 10, 5)
 
 --[[
 	IdleActivityTranslations maps ACT_MP_* activities to the activity/sequence
@@ -37,6 +36,9 @@ ENT.IdleActivityTranslations = {
 	[ACT_LAND] = ACT_LAND,
 }
 
+-- Default: use NPC-style burst fire. Override per-bot or per-weapon.
+ENT.UseWeaponBurst = true
+
 local AddNetworkVar = function(type, slot, name)
 	ENT["Set" .. name] = function(self, value)
 		self["SetDT" .. type](self, slot, value)
@@ -47,7 +49,6 @@ local AddNetworkVar = function(type, slot, name)
 end
 
 AddNetworkVar("Entity", 0, "ActiveWeapon")
-AddNetworkVar("Entity", 1, "ControlPlayer")
 AddNetworkVar("Bool", 0, "Crouching")
 AddNetworkVar("Int", 0, "WeaponClip1")
 AddNetworkVar("Int", 1, "WeaponClip2")

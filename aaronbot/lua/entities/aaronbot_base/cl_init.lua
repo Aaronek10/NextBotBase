@@ -18,6 +18,4 @@ function ENT:DrawTranslucent()
 	self:Draw()
 end
 
-include("cl_playercontrol.lua")
-include("drive.lua")
 include("tasks.lua")
