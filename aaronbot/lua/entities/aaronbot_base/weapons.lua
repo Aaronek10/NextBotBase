@@ -343,8 +343,33 @@ function ENT:CanDropWeaponOnDie(wep)
 	return not self:HasSpawnFlags(SF_NPC_NO_WEAPON_DROP)
 end
 
+--[[------------------------------------
+	Burst control hierarchy (highest first):
+	1. Task "ShouldWeaponAttackUseBurst"
+	2. Weapon: wep.AaronBotUseBurst / wep.UseBurst
+	3. Bot: ENT.UseWeaponBurst / SetUseWeaponBurst
+	4. Default true
+--]]------------------------------------
+function ENT:SetUseWeaponBurst(use)
+	self.UseWeaponBurst = use and true or false
+end
+
+function ENT:GetUseWeaponBurst()
+	return self.UseWeaponBurst ~= false
+end
+
 function ENT:ShouldWeaponAttackUseBurst(wep)
-	return not self:IsControlledByPlayer()
+	wep = wep or self:GetActiveLuaWeapon()
+
+	local task = self:RunTask("ShouldWeaponAttackUseBurst", wep)
+	if task ~= nil then return task and true or false end
+
+	if IsValid(wep) then
+		if wep.AaronBotUseBurst ~= nil then return wep.AaronBotUseBurst and true or false end
+		if wep.UseBurst ~= nil then return wep.UseBurst and true or false end
+	end
+
+	return self:GetUseWeaponBurst()
 end
 
 function ENT:IsMeleeWeapon(wep)
