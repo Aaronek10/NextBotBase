@@ -130,9 +130,6 @@ function ENT:SetupEyeAngles()
 	local angy = self:GetAngles().y
 	local desired = self:GetDesiredEyeAngles()
 	local punch = self:GetViewPunchAngles()
-	if self:IsControlledByPlayer() then
-		desired = self:GetControlPlayer():EyeAngles()
-	end
 	local diffp = math.AngleDifference(desired.p, angp)
 	local diffy = math.AngleDifference(desired.y, angy)
 	local max = self.BehaveInterval * self.AimSpeed
@@ -157,22 +154,6 @@ function ENT:ViewPunch(ang)
 	self:SetViewPunchAngle(ang)
 end
 
-local IdleActivity = ACT_HL2MP_IDLE
-local IdleActivityTranslate = {
-	[ACT_MP_STAND_IDLE] = IdleActivity,
-	[ACT_MP_WALK] = IdleActivity + 1,
-	[ACT_MP_RUN] = IdleActivity + 2,
-	[ACT_MP_CROUCH_IDLE] = IdleActivity + 3,
-	[ACT_MP_CROUCHWALK] = IdleActivity + 4,
-	[ACT_MP_ATTACK_STAND_PRIMARYFIRE] = IdleActivity + 5,
-	[ACT_MP_ATTACK_CROUCH_PRIMARYFIRE] = IdleActivity + 5,
-	[ACT_MP_RELOAD_STAND] = IdleActivity + 6,
-	[ACT_MP_RELOAD_CROUCH] = IdleActivity + 7,
-	[ACT_MP_JUMP] = ACT_HL2MP_JUMP_SLAM,
-	[ACT_MP_SWIM] = IdleActivity + 9,
-	[ACT_LAND] = ACT_LAND,
-}
-
 function ENT:TranslateActivity(act)
 	local task = self:RunTask("TranslateActivity", act)
 	if task then return task end
@@ -181,9 +162,12 @@ function ENT:TranslateActivity(act)
 		local newact
 		ProtectedCall(function() newact = self:GetActiveLuaWeapon():TranslateActivity(act) end)
 		self.m_PassIsNPCCheck = true
-		return newact
+		if newact then return newact end
 	end
-	return IdleActivityTranslate[act] or IdleActivity
+	local t = self.IdleActivityTranslations and self.IdleActivityTranslations[act]
+	if isfunction(t) then return t(self) end
+	if t then return t end
+	return self.IdleActivity or ACT_HL2MP_IDLE
 end
 
 function ENT:SetupActivity()
@@ -329,24 +313,15 @@ function ENT:LocomotionUpdate(interval)
 end
 
 function ENT:ShouldRun()
-	if self:IsControlledByPlayer() then
-		return self:ControlPlayerKeyDown(IN_SPEED)
-	end
 	return self:RunTask("ShouldRun") or false
 end
 
 function ENT:ShouldWalk()
-	if self:IsControlledByPlayer() then
-		return self:ControlPlayerKeyDown(IN_WALK)
-	end
 	return self:RunTask("ShouldWalk") or false
 end
 
 function ENT:ShouldCrouch()
 	if not self.CanCrouch then return false end
-	if self:IsControlledByPlayer() then
-		return self:ControlPlayerKeyDown(IN_DUCK)
-	end
 	if self.m_Jumping then return true end
 	if not self:UsingNodeGraph() then
 		if self:PathIsValid() and not self:IsMoving() then
