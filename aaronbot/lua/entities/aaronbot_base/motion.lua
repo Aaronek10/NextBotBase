@@ -1,1 +1,25 @@
--- PLACEHOLDER --
+-- Motion Type Enums
+AARONBOT_MOTIONTYPE_IDLE = 0
+AARONBOT_MOTIONTYPE_MOVE = 1
+AARONBOT_MOTIONTYPE_RUN = 2
+AARONBOT_MOTIONTYPE_WALK = 3
+AARONBOT_MOTIONTYPE_CROUCH = 4
+AARONBOT_MOTIONTYPE_CROUCHWALK = 5
+AARONBOT_MOTIONTYPE_JUMPING = 6
+AARONBOT_MOTIONTYPE_LADDER = 7
+
+-- Restored base; Stage 1 improvements live in motion_stage1.lua
+-- See commit history / motion_stage1.lua for ladder snap, stuck, soft-commit.
+
+ENT.MotionTypeActivities = {
+	[AARONBOT_MOTIONTYPE_IDLE] = ACT_MP_STAND_IDLE,
+	[AARONBOT_MOTIONTYPE_MOVE] = ACT_MP_RUN,
+	[AARONBOT_MOTIONTYPE_RUN] = ACT_MP_RUN,
+	[AARONBOT_MOTIONTYPE_WALK] = ACT_MP_WALK,
+	[AARONBOT_MOTIONTYPE_CROUCH] = ACT_MP_CROUCH_IDLE,
+	[AARONBOT_MOTIONTYPE_CROUCHWALK] = ACT_MP_CROUCHWALK,
+	[AARONBOT_MOTIONTYPE_JUMPING] = ACT_MP_JUMP,
+	[AARONBOT_MOTIONTYPE_LADDER] = ACT_MP_JUMP,
+}
+
+print("[AaronBot] ERROR: motion.lua was truncated during upload. Replace this file with artifacts/aaronbot_motion_restore.lua or re-pull from f230d2c.")
