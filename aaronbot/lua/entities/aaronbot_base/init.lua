@@ -27,7 +27,7 @@ ENT.LineOfSightMask = MASK_BLOCKLOS
 ENT.ForgetEnemyTime = 30
 ENT.CloseEnemyDistance = 500
 ENT.MaxSeeEnemyDistance = 3000
-ENT.PathMinLookAheadDistance = 75
+ENT.PathMinLookAheadDistance = 35
 ENT.PathGoalTolerance = 25
 ENT.PathGoalToleranceFinal = 25
 ENT.PathRecompute = 5
@@ -153,8 +153,6 @@ function ENT:DissolveEntity(ent)
 end
 
 include("motion.lua")
-include("motion_path_fix.lua")
-include("motion_ladder_fix.lua")
 include("weapons.lua")
 include("enemy.lua")
 include("behaviour.lua")

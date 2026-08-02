@@ -36,6 +36,8 @@ JUMP_OVER_GAP = 3
 LADDER_UP = 4
 LADDER_DOWN = 5
 
+local LADDER_EXIT_COOLDOWN = 0.75
+
 Ladders, LaddersUpdate = Ladders or {}, LaddersUpdate
 function UpdateLadders()
 	if LaddersUpdate and CurTime() - LaddersUpdate < 30 then return end
@@ -282,9 +284,10 @@ function ENT:LocomotionUpdate(interval)
 	if self.m_Physguned then
 		self.loco:SetVelocity(vector_origin)
 	end
+
 	local ladder = self.m_Ladder
 	if not ladder then
-		if self.CanUseLadder then
+		if self.CanUseLadder and not (self.m_LadderCooldown and CurTime() < self.m_LadderCooldown) then
 			local dir = self.loco:GetVelocity()
 			local len = dir:Length2D()
 			if len >= 1 then
@@ -297,7 +300,11 @@ function ENT:LocomotionUpdate(interval)
 					for l = 1, #Ladders do
 						local lad = Ladders[l]
 						local dot = dir:Dot(lad:GetNormal())
-						if dot < -0.5 and curpos.z > lad:GetBottom().z - step and curpos.z < lad:GetTop().z - step and util.DistanceToLine(lad:GetBottom(), lad:GetTop(), curpos) < lad:GetWidth() + width then
+						-- Require being clearly below top so post-exit re-grab cannot happen at the lip
+						if dot < -0.5
+							and curpos.z > lad:GetBottom().z - step
+							and curpos.z < lad:GetTop().z - step * 2
+							and util.DistanceToLine(lad:GetBottom(), lad:GetTop(), curpos) < lad:GetWidth() + width then
 							self:AttachToLadder(lad)
 							break
 						end
@@ -308,32 +315,48 @@ function ENT:LocomotionUpdate(interval)
 	else
 		local pos = self:GetPos()
 		if not self.m_LadderJustAttached then
+			-- SB-style end detection: past top/bottom or too far off axis → detach
 			local axisPos = SnapToLadderAxis(ladder.Bottom, ladder.Top, pos)
 			local dist2d = Dist2D(pos, axisPos)
 			local offAxis = dist2d > self:GetHullWidth() * 0.75
-			local below = pos.z < ladder.Bottom.z - 8
-			local above = pos.z > ladder.Top.z + 8
+			local below = pos.z < ladder.Bottom.z
+			local above = pos.z > ladder.Top.z
+
 			if offAxis or below or above then
-				self:DetachFromLadder(nil, "off_axis_or_ends")
+				local reason = above and "past_top" or (below and "past_bottom" or "off_axis")
+				local exitPos
+				if above then
+					exitPos = ladder.Top + ladder.Normal * 36
+					exitPos.z = ladder.Top.z + 12
+				elseif below then
+					exitPos = ladder.Bottom + ladder.Normal * 36
+					exitPos.z = ladder.Bottom.z + 4
+				end
+				self:DetachFromLadder(exitPos, reason)
 			else
+				-- Keep snapped to axis while climbing
 				if dist2d > 4 then
 					local snap = axisPos
 					snap.z = pos.z
 					self:SetPos(snap)
 				end
+				-- SB-style velocity: (goal - pos) / interval so we overshoot the end naturally
 				local goal = self.m_LadderApproach
 				if goal then
-					local climbDir = (goal - pos):GetNormalized()
-					local speed = self.LadderClimbSpeed or 200
-					self.loco:SetVelocity(climbDir * speed)
+					local dt = interval
+					if not dt or dt <= 0 then dt = self.BehaveInterval or 0.1 end
+					if dt < 0.01 then dt = 0.01 end
+					self.loco:SetVelocity((goal - pos) / dt)
 				else
 					self.loco:SetVelocity(vector_origin)
 				end
+				self.loco:SetStepHeight(1)
 			end
 		end
 		self.m_LadderApproach = nil
 		self.m_LadderJustAttached = nil
 	end
+
 	self:SetupSpeed()
 	self:SetupMotionType()
 	self:ProcessFootsteps()
@@ -491,31 +514,34 @@ end
 
 function ENT:ControlPath(lookatgoal)
 	if not self:PathIsValid() then return false end
+
 	local path = self:GetPath()
 	local pos = self:GetPathPos()
 	local options = self.m_PathOptions or {}
+
 	if not self.m_Ladder then
 		local range = self:GetRangeSquaredTo(pos)
-		if range < (options.tolerance or self.PathGoalTolerance) ^ 2 or range < self.PathGoalToleranceFinal ^ 2 then
+		local tol = options.tolerance or self.PathGoalTolerance or 25
+		local tolFinal = self.PathGoalToleranceFinal or 25
+
+		if range < tol * tol or range < tolFinal * tolFinal then
 			path:Invalidate()
 			return true
 		end
+
 		local recompute = options.recompute or self.PathRecompute or 5
-		local age = path:GetAge()
-		local needRecompute = age > recompute
-		if not needRecompute and age > 0.35 and self.loco:IsOnGround() then
-			local seg = path:GetCurrentGoal()
-			if seg and seg.pos and self:GetRangeSquaredTo(seg.pos) > (200 ^ 2) then
-				needRecompute = true
+		if path:GetAge() > recompute and self.loco:IsOnGround() then
+			path:ResetAge()
+			if not self:ComputePath(pos, options.generator) then
+				return false
 			end
 		end
-		if needRecompute and self.loco:IsOnGround() then
-			path:ResetAge()
-			if not self:ComputePath(pos, options.generator) then return false end
-		end
 	end
-	if self:MoveAlongPath(lookatgoal) then return true end
-	return false
+
+	-- true = arrived, false = failed, nil = still moving (do NOT return false here)
+	if self:MoveAlongPath(lookatgoal) then
+		return true
+	end
 end
 
 function ENT:UpdatePathGoal(pos, force)
@@ -596,12 +622,15 @@ end
 
 function ENT:AttachToLadder(ladder)
 	if not ladder then return self:DetachFromLadder() end
+	if self.m_LadderCooldown and CurTime() < self.m_LadderCooldown then return end
+
 	local navladder = type(ladder) == "CNavLadder"
 	local bottom = navladder and ladder:GetBottom() or ladder.bottom
 	local top = navladder and ladder:GetTop() or ladder.top
 	local normal = navladder and ladder:GetNormal() or ladder.normal
 	local width = self:GetHullWidth(true)
 	local offset = normal * (width * 0.5)
+
 	self.m_Ladder = {
 		Bottom = bottom + offset,
 		Top = top + offset,
@@ -632,35 +661,50 @@ function ENT:DetachFromLadder(exitPos, reason)
 	self.m_Ladder = nil
 	self.m_LadderApproach = nil
 	self.m_LadderJustAttached = nil
+	self.m_LadderCooldown = CurTime() + LADDER_EXIT_COOLDOWN
+
 	self.loco:SetStepHeight(self.StepHeight)
 	self:UpdateGravity()
 
 	local pos = self:GetPos()
 	local dest = exitPos
 	if not isvector(dest) then
-		if math.abs(pos.z - ladder.Top.z) < math.abs(pos.z - ladder.Bottom.z) then
-			dest = ladder.Top + ladder.Normal * 24
-			dest.z = ladder.Top.z + 8
+		-- Prefer the nearer end; push along ladder normal onto the landing side
+		if math.abs(pos.z - ladder.Top.z) <= math.abs(pos.z - ladder.Bottom.z) then
+			dest = ladder.Top + ladder.Normal * 36
+			dest.z = ladder.Top.z + 12
 		else
-			dest = ladder.Bottom + ladder.Normal * 24
+			dest = ladder.Bottom + ladder.Normal * 36
 			dest.z = ladder.Bottom.z + 4
 		end
 	end
 
+	-- Advance path past the ladder segment if we are still on it
 	if self:PathIsValid() and not self:UsingNodeGraph() then
 		local goal = self:GetPath():GetCurrentGoal()
 		if goal and goal.ladder then
+			local ang = self:GetAngles()
 			self:GetPath():Update(self)
+			self:SetAngles(ang)
 		end
 	end
 
-	local away = (dest - pos)
+	-- Nudge onto landing so we are outside attach range next tick
+	local away = dest - pos
 	if away:LengthSqr() < 1 then
 		away = ladder.Normal
 	else
 		away:Normalize()
 	end
-	self.loco:SetVelocity(away * 120 + Vector(0, 0, 40))
+
+	local land = Vector(pos.x, pos.y, pos.z) + away * 28
+	land.z = math.max(pos.z, dest.z)
+	-- Only soft-set XY; keep current Z if already above top so we do not slam into floor
+	if pos.z >= ladder.Top.z - 4 then
+		land.z = math.max(ladder.Top.z + 4, dest.z)
+	end
+	self:SetPos(land)
+	self.loco:SetVelocity(away * 180 + Vector(0, 0, 60))
 	self:RunTask("OnLadderExit", reason)
 end
 
@@ -682,41 +726,54 @@ function ENT:MoveAlongPath(lookatgoal)
 	local path = self:GetPath()
 	local segment = path:GetCurrentGoal()
 	if not segment then return false end
+
 	if lookatgoal then
 		local ang = (segment.pos - self:GetShootPos()):Angle()
 		ang.p = 0
 		self:SetDesiredEyeAngles(ang)
 	end
+
 	local pos = self:GetPos()
 	local dontupdate = false
+
 	if not self:UsingNodeGraph() then
 		if segment.ladder and (segment.how == GO_LADDER_UP or segment.how == GO_LADDER_DOWN) then
 			local goingUp = segment.how == GO_LADDER_UP
 			local ladderData = self.m_Ladder
+
 			if ladderData then
+				-- On ladder: climb like SB (Approach ±Z). LocomotionUpdate applies velocity
+				-- and detaches when past Top/Bottom. Only force-exit near the lip.
 				dontupdate = true
-				local targetZ = goingUp and ladderData.Top.z or ladderData.Bottom.z
-				local climbTarget = SnapToLadderAxis(ladderData.Bottom, ladderData.Top, pos)
-				climbTarget.z = targetZ + (goingUp and 8 or -4)
-				self.m_LadderApproach = climbTarget
+				self:Approach(pos + Vector(0, 0, goingUp and 1 or -1))
 				self:SetDesiredEyeAngles((goingUp and (ladderData.Top - ladderData.Bottom) or (ladderData.Bottom - ladderData.Top)):Angle())
 
-				if goingUp and pos.z >= ladderData.Top.z - 20 then
+				if goingUp and pos.z >= ladderData.Top.z - 4 then
 					local nextSeg = path:NextSegment()
-					local exitPos = nextSeg and nextSeg.pos or (ladderData.Top + ladderData.Normal * 28)
+					local exitPos = nextSeg and nextSeg.pos or nil
+					if not exitPos then
+						exitPos = ladderData.Top + ladderData.Normal * 36
+						exitPos.z = ladderData.Top.z + 12
+					end
 					self:DetachFromLadder(exitPos, "reached_top")
 					dontupdate = false
-				elseif not goingUp and pos.z <= ladderData.Bottom.z + 20 then
+				elseif not goingUp and pos.z <= ladderData.Bottom.z + 4 then
 					local nextSeg = path:NextSegment()
-					local exitPos = nextSeg and nextSeg.pos or (ladderData.Bottom + ladderData.Normal * 28)
+					local exitPos = nextSeg and nextSeg.pos or nil
+					if not exitPos then
+						exitPos = ladderData.Bottom + ladderData.Normal * 36
+						exitPos.z = ladderData.Bottom.z + 4
+					end
 					self:DetachFromLadder(exitPos, "reached_bottom")
 					dontupdate = false
 				end
 			else
+				-- Not yet on ladder: approach mount point / attach
 				local ladderstart = goingUp and segment.ladder:GetBottom() or segment.ladder:GetTop()
 				local ladderend = goingUp and segment.ladder:GetTop() or segment.ladder:GetBottom()
 				local nearend = math.abs(pos.z - ladderend.z) < math.abs(pos.z - ladderstart.z)
 				local mountPos = ladderstart + segment.ladder:GetNormal() * self:GetHullWidth(true) / 2
+
 				if not nearend then
 					local range = (mountPos - pos):Length2D()
 					if range < 55 + self.loco:GetDesiredSpeed() then
@@ -737,12 +794,18 @@ function ENT:MoveAlongPath(lookatgoal)
 			end
 		else
 			if self.m_Ladder then self:DetachFromLadder() end
+
 			local prev = path:PriorSegment()
-			if (segment.how == GO_JUMP or segment.how <= GO_WEST and prev and prev.area:HasAttributes(NAV_MESH_JUMP)) and self.loco:IsOnGround() and self.loco:GetJumpHeight() > 0 then
+			if (segment.how == GO_JUMP or segment.how <= GO_WEST and prev and prev.area:HasAttributes(NAV_MESH_JUMP))
+				and self.loco:IsOnGround() and self.loco:GetJumpHeight() > 0 then
 				local dojump = true
 				local deltaz = segment.pos.z - pos.z
-				if deltaz <= 0 and (segment.pos - pos):Length2DSqr() < path:GetGoalTolerance() ^ 2 then dojump = false
-				elseif deltaz < self.loco:GetStepHeight() and self:GetRangeSquaredTo(segment.pos) < path:GetGoalTolerance() ^ 2 then dojump = false end
+				if deltaz <= 0 and (segment.pos - pos):Length2DSqr() < path:GetGoalTolerance() ^ 2 then
+					dojump = false
+				elseif deltaz < self.loco:GetStepHeight() and self:GetRangeSquaredTo(segment.pos) < path:GetGoalTolerance() ^ 2 then
+					dojump = false
+				end
+
 				if dojump then
 					local result = self:CalcJumpHeightOverObstacles(segment.pos)
 					if isnumber(result) then
@@ -765,6 +828,7 @@ function ENT:MoveAlongPath(lookatgoal)
 			end
 		end
 	end
+
 	if not dontupdate then
 		if self.loco:IsOnGround() or self.m_Ladder then
 			local ang = self:GetAngles()
@@ -776,9 +840,12 @@ function ENT:MoveAlongPath(lookatgoal)
 			self:Approach(segment.pos)
 		end
 	end
+
 	if self.DrawPath:GetBool() then path:Draw() end
+
 	local range = self:GetRangeSquaredTo(self:GetPathPos())
-	if not path:IsValid() and range <= self.m_PathOptions.tolerance ^ 2 or range < self.PathGoalToleranceFinal ^ 2 then
+	local tol = (self.m_PathOptions and self.m_PathOptions.tolerance) or self.PathGoalTolerance or 25
+	if (not path:IsValid() and range <= tol * tol) or range < (self.PathGoalToleranceFinal or 25) ^ 2 then
 		path:Invalidate()
 		return true
 	end

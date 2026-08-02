@@ -455,7 +455,7 @@ function ENT:SetupEntityRelationship(ent)
 end
 
 function ENT:BehaviourThink()
-	if not self:IsControlledByPlayer() and not self:DisableBehaviour() then
+	if not self:DisableBehaviour() then
 		local filter = self:GetChildren()
 		filter[#filter + 1] = self
 		if IsValid(self:GetEnemy()) then filter[#filter + 1] = self:GetEnemy() end

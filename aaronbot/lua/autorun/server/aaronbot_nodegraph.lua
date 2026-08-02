@@ -591,7 +591,17 @@ PathFollower = {
 		self.MinLook = -1
 		self.ComputeTime = 0
 		self.Valid = false
+
 		self.AvoidTimer = 0
+		self.AvoidCheck = false
+		self.AvoidLeftClear = true
+		self.AvoidRightClear = true
+		self.AvoidHullMin = Vector()
+		self.AvoidHullMax = Vector()
+		self.AvoidLeftFrom = Vector()
+		self.AvoidLeftTo = Vector()
+		self.AvoidRightFrom = Vector()
+		self.AvoidRightTo = Vector()
 	end,
 	_Astar = function(self, start, goal, botdata)
 		local from, to
@@ -762,6 +772,121 @@ PathFollower = {
 	ResetAge = function(self) self.ComputeTime = CurTime() end,
 	SetGoalTolerance = function(self, t) self.Tolerance = t end,
 	SetMinLookAheadDistance = function(self, d) self.MinLook = d end,
+	_Avoid = function(self, bot, goalpos, forward, left)
+		if CurTime() < self.AvoidTimer then return goalpos end
+
+		local avoidInterval = 0.15
+		self.AvoidTimer = CurTime() + avoidInterval
+		self.AvoidCheck = true
+
+		local bounds = bot.CrouchCollisionBounds
+		local bmin, bmax = bounds[1], bounds[2]
+
+		local curpos = bot:GetPos()
+		local scale = bot:GetModelScale()
+		local mask = bot:GetSolidMask()
+		local step = bot.loco:GetStepHeight()
+
+		local range = 30 * scale
+		local size = (bmax.x - bmin.x) / 2.5
+		local offset = size + 1
+
+		self.AvoidHullMin = Vector(-size, -size, step)
+		self.AvoidHullMax = Vector(size, size, bmax.z)
+
+		local filter = bot:GetChildren()
+		filter[#filter + 1] = bot
+
+		local door
+
+		-- LEWA strona
+		self.AvoidLeftFrom = curpos + left * offset
+		self.AvoidLeftTo = self.AvoidLeftFrom + forward * range
+		self.AvoidLeftClear = true
+		local leftavoid = 0
+
+		local result = util.TraceHull({
+			start = self.AvoidLeftFrom,
+			endpos = self.AvoidLeftTo,
+			mins = self.AvoidHullMin,
+			maxs = self.AvoidHullMax,
+			mask = mask,
+			filter = filter
+		})
+		if result.Fraction < 1 or result.StartSolid then
+			if result.StartSolid then result.Fraction = 0 end
+			leftavoid = 1 - result.Fraction
+			self.AvoidLeftClear = false
+			if not result.HitWorld and IsValid(result.Entity) then
+				local cls = result.Entity:GetClass()
+				if cls:StartWith("func_door") or cls:StartWith("prop_door") then
+					door = result.Entity
+				end
+			end
+		end
+
+		-- PRAWA strona
+		self.AvoidRightFrom = curpos - left * offset
+		self.AvoidRightTo = self.AvoidRightFrom + forward * range
+		self.AvoidRightClear = true
+		local rightavoid = 0
+
+		result = util.TraceHull({
+			start = self.AvoidRightFrom,
+			endpos = self.AvoidRightTo,
+			mins = self.AvoidHullMin,
+			maxs = self.AvoidHullMax,
+			mask = mask,
+			filter = filter
+		})
+		if result.Fraction < 1 or result.StartSolid then
+			if result.StartSolid then result.Fraction = 0 end
+			rightavoid = 1 - result.Fraction
+			self.AvoidRightClear = false
+			if not door and not result.HitWorld and IsValid(result.Entity) then
+				local cls = result.Entity:GetClass()
+				if cls:StartWith("func_door") or cls:StartWith("prop_door") then
+					door = result.Entity
+				end
+			end
+		end
+
+		local newgoal = Vector(goalpos)
+
+		if door and not self.AvoidLeftClear and not self.AvoidRightClear then
+			-- obie strony zablokowane drzwiami → idź na krawędź drzwi
+			local pos = door:GetPos()
+			local ang = door:GetAngles()
+			local right = ang:Right()
+			local edge = pos - right * 100
+			newgoal.x = edge.x
+			newgoal.y = edge.y
+			self.AvoidTimer = CurTime()
+		elseif not self.AvoidLeftClear or not self.AvoidRightClear then
+			local avoidval = 0
+			if self.AvoidLeftClear then
+				avoidval = -rightavoid
+			elseif self.AvoidRightClear then
+				avoidval = leftavoid
+			else
+				local diff = math.abs(rightavoid - leftavoid)
+				if diff < 0.01 then
+					return newgoal
+				elseif rightavoid > leftavoid then
+					avoidval = -rightavoid
+				else
+					avoidval = leftavoid
+				end
+			end
+
+			local dir = forward * 0.1 - left * avoidval
+			dir:Normalize()
+			newgoal = curpos + dir * 150
+			self.AvoidTimer = CurTime()
+		end
+
+		return newgoal
+	end,
 	Update = function(self, bot)
 		if not self:IsValid() then return end
 		local curpos = bot:GetPos()
@@ -792,6 +917,19 @@ PathFollower = {
 				bot:Approach(curpos + Vector(0, 0, goal.how == GO_LADDER_UP and 1 or -1))
 			end
 		elseif goal.type == PATH_SEGMENT_MOVETYPE_GROUND or goal.type == PATH_SEGMENT_MOVETYPE_CROUCHING then
+
+			local forward = goalpos - curpos
+			forward.z = 0
+			local range = forward:Length()
+			forward:Normalize()
+
+			local left = Vector(-forward.y, forward.x, 0)
+			local nearRange = 35 + bot:GetHullWidth() / 2
+
+			if range > nearRange then
+				goalpos = self:_Avoid(bot, goalpos, forward, left)
+			end
+
 			bot:Approach(goalpos)
 		elseif goal.how == GO_JUMP then
 			if bot.loco:IsOnGround() then
