@@ -228,7 +228,7 @@ function ENT:IsGestureActive(wait)
 end
 
 function ENT:IsPostureActive()
-	return self.m_CurPosture and (not self.m_CurPosture[1] or CurTime() < self.m_CurPosture[1]) or false
+	return self.m_CurPosture and (not self.m_CurPosture[2] or CurTime() < self.m_CurPosture[1]) or false
 end
 
 function ENT:SetupGesturePosture()
@@ -291,6 +291,7 @@ function ENT:LocomotionUpdate(interval)
 				UpdateLadders()
 				if #Ladders > 0 then
 					local curpos = self:GetPos()
+					local step = self.StepHeight
 					local width = self:GetHullWidth() / 2
 					dir:Normalize()
 					for l = 1, #Ladders do
@@ -697,6 +698,7 @@ function ENT:MoveAlongPath(lookatgoal)
 				local targetZ = goingUp and ladderData.Top.z or ladderData.Bottom.z
 				local climbTarget = SnapToLadderAxis(ladderData.Bottom, ladderData.Top, pos)
 				climbTarget.z = targetZ + (goingUp and 8 or -4)
+				self.m_LadderApproach = climbTarget
 				self:SetDesiredEyeAngles((goingUp and (ladderData.Top - ladderData.Bottom) or (ladderData.Bottom - ladderData.Top)):Angle())
 
 				if goingUp and pos.z >= ladderData.Top.z - 20 then
@@ -838,6 +840,32 @@ function ENT:GetFootstepSoundTime()
 	else time = 250 end
 	if self:IsCrouching() then time = time + 50 end
 	return time
+end
+
+function ENT:OnFootstep(pos, foot, sound, volume, filter)
+	return self:RunTask("OnFootstep", pos, foot, sound, volume, filter)
+end
+
+function ENT:ProcessFootsteps()
+	if not self.loco:IsOnGround() then return end
+	local time = self.m_FootstepTime
+	local curspeed = self:GetCurrentSpeed()
+	if curspeed > self.WalkSpeed and CurTime() - time >= self:GetFootstepSoundTime() / 1000 then
+		local walk = curspeed < self.RunSpeed
+		local tr = util.TraceEntity({start = self:GetPos(), endpos = self:GetPos() - Vector(0, 0, 5), filter = self, mask = self:GetSolidMask(), collisiongroup = self:GetCollisionGroup()}, self)
+		local surface = util.GetSurfaceData(tr.SurfaceProps)
+		if not surface then return end
+		local m = surface.material
+		local vol = 0
+		if m == MAT_CONCRETE then vol = walk and 0.2 or 0.5
+		elseif m == MAT_METAL then vol = walk and 0.2 or 0.5
+		elseif m == MAT_DIRT then vol = walk and 0.25 or 0.55
+		elseif m == MAT_VENT then vol = walk and 0.4 or 0.7
+		elseif m == MAT_GRATE then vol = walk and 0.2 or 0.5
+		elseif m == MAT_TILE then vol = walk and 0.2 or 0.5
+		elseif m == MAT_SLOSH then vol = walk and 0.2 or 0.5 end
+		self:MakeFootstepSound(vol, tr.SurfaceProps)
+	end
 end
 
 function ENT:MakeFootstepSound(volume, surface)
@@ -988,6 +1016,10 @@ function ENT:CalcJumpHeightOverObstacles(goal, maxheight, start)
 	local dir2 = goal - start
 	dir2.z = 0
 	dir2:Normalize()
+	local filter = self:GetChildren()
+	filter[#filter + 1] = self
+	local result = {}
+	local tr = {mins = mins, maxs = maxs, filter = filter, mask = self:GetSolidMask(), collisiongroup = self:GetCollisionGroup(), output = result}
 	local apexs, jumpapex = {}, Vector(goal)
 	while true do
 		local cstart = start
