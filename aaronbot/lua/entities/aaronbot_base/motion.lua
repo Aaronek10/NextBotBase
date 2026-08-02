@@ -140,26 +140,74 @@ function IsAngleEqual(ang1, ang2)
 end
 
 function ENT:SetupEyeAngles()
-	local angp = self.m_PitchAim
-	local angy = self:GetAngles().y
 	local desired = self:GetDesiredEyeAngles()
 	local punch = self:GetViewPunchAngles()
-	local diffp = math.AngleDifference(desired.p, angp)
-	local diffy = math.AngleDifference(desired.y, angy)
-	local max = self.BehaveInterval * self.AimSpeed
-	diffp = diffp < 0 and math.max(-max, diffp) or math.min(max, diffp)
-	diffy = diffy < 0 and math.max(-max, diffy) or math.min(max, diffy)
-	angp = angp + diffp
-	angy = angy + diffy
-	local newang = Angle(0, angy, 0)
+
+	local bodyYaw = self:GetAngles().y
+	local moveDir = self.loco:GetVelocity()
+	moveDir.z = 0
+
+	-- limit aim_yaw modelu (z marginesem)
+	local aimLimit = 5
+	local yawMin, yawMax = -60, 60
+	local pitchMin, pitchMax = -89, 89
+	local yawid = self:LookupPoseParameter("aim_yaw")
+	local pitchid = self:LookupPoseParameter("aim_pitch")
+	if yawid ~= -1 then
+		yawMin, yawMax = self:GetPoseParameterRange(yawid)
+		aimLimit = math.min(math.abs(yawMin), math.abs(yawMax)) - 5
+	end
+	if pitchid ~= -1 then
+		pitchMin, pitchMax = self:GetPoseParameterRange(pitchid)
+	end
+
+	-- 1) Ciało: ruch, ale dogania wroga gdy poza zasięgiem aim_yaw
+	local targetBodyYaw
+	local moving = moveDir:LengthSqr() > 25
+
+	if moving then
+		local moveYaw = moveDir:Angle().y
+		local toEnemy = math.AngleDifference(desired.y, moveYaw)
+
+		if math.abs(toEnemy) <= aimLimit then
+			targetBodyYaw = moveYaw
+		else
+			local sign = toEnemy > 0 and 1 or -1
+			targetBodyYaw = desired.y - sign * aimLimit
+		end
+	else
+		targetBodyYaw = desired.y
+	end
+
+	local maxBody = self.BehaveInterval * (self.BodyTurnSpeed or 180)
+	local diffBody = math.AngleDifference(targetBodyYaw, bodyYaw)
+	bodyYaw = bodyYaw + math.Clamp(diffBody, -maxBody, maxBody)
+
+	local newang = Angle(0, bodyYaw, 0)
 	if not IsAngleEqual(self:GetAngles(), newang) then
 		self:SetAngles(newang)
 		local phys = self:GetPhysicsObject()
-		if phys:IsValid() and not IsAngleEqual(phys:GetAngles(), angle_zero) then phys:SetAngles(angle_zero) end
+		if phys:IsValid() and not IsAngleEqual(phys:GetAngles(), angle_zero) then
+			phys:SetAngles(angle_zero)
+		end
 	end
-	self.m_PitchAim = angp
+
+	-- 2) Góra (aim) względem ciała
+	self.m_PitchAim = self.m_PitchAim or 0
+	self.m_YawAim = self.m_YawAim or 0
+
+	local maxAim = self.BehaveInterval * self.AimSpeed
+	local wantPitch = math.Clamp(desired.p, pitchMin, pitchMax)
+	local wantYaw = math.Clamp(math.AngleDifference(desired.y, bodyYaw), yawMin, yawMax)
+
+	local dp = math.AngleDifference(wantPitch, self.m_PitchAim)
+	local dy = math.AngleDifference(wantYaw, self.m_YawAim)
+	self.m_PitchAim = self.m_PitchAim + math.Clamp(dp, -maxAim, maxAim)
+	self.m_YawAim = self.m_YawAim + math.Clamp(dy, -maxAim, maxAim)
+
 	self:SetPoseParameter("aim_pitch", self.m_PitchAim + punch.p)
-	self:SetPoseParameter("aim_yaw", punch.y)
+	self:SetPoseParameter("aim_yaw", self.m_YawAim + punch.y)
+
 	self:SetEyeTarget(self:GetShootPos() + self:GetEyeAngles():Forward() * 100)
 end
 

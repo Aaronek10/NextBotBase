@@ -775,7 +775,7 @@ PathFollower = {
 	_Avoid = function(self, bot, goalpos, forward, left)
 		if CurTime() < self.AvoidTimer then return goalpos end
 
-		local avoidInterval = 0.15
+		local avoidInterval = 0.12
 		self.AvoidTimer = CurTime() + avoidInterval
 		self.AvoidCheck = true
 
@@ -787,9 +787,9 @@ PathFollower = {
 		local mask = bot:GetSolidMask()
 		local step = bot.loco:GetStepHeight()
 
-		local range = 30 * scale
-		local size = (bmax.x - bmin.x) / 2.5
-		local offset = size + 1
+		local range = 50 * scale
+		local size = (bmax.x - bmin.x) / 3
+		local offset = size + 6
 
 		self.AvoidHullMin = Vector(-size, -size, step)
 		self.AvoidHullMax = Vector(size, size, bmax.z)
