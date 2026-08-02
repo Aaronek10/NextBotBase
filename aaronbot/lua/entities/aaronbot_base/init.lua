@@ -153,6 +153,7 @@ function ENT:DissolveEntity(ent)
 end
 
 include("motion.lua")
+include("motion_stage1.lua")
 include("weapons.lua")
 include("enemy.lua")
 include("behaviour.lua")
