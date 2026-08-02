@@ -1,8 +1,15 @@
--- Path following fix: aggressive soft-commit was recomputing the path every 0.35s
--- whenever the current segment was >200u away. That constantly rebuilt the PathFollower
--- and produced the "step by step" stutter with almost no distance covered.
+-- Path following fix
 --
--- Loaded after motion.lua from init.lua. Later redefine wins in Lua.
+-- BUG 1: Soft-commit recomputed path every 0.35s (stutter).
+-- BUG 2 (main): ControlPath ended with `return false` while still pathing.
+--   Movement tasks do:
+--     result = ControlPath()
+--     if result then      -- arrived
+--     elseif result == false then  -- path failed -> TaskFail + wait
+--     end                 -- nil = keep moving
+--   Returning false mid-path made the bot fail the task every tick and only
+--   walk a tiny step before waiting again ("krok po kroczku").
+--   Original SB ANB returns nil (implicit) when still following the path.
 
 function ENT:ControlPath(lookatgoal)
 	if not self:PathIsValid() then return false end
@@ -21,7 +28,6 @@ function ENT:ControlPath(lookatgoal)
 			return true
 		end
 
-		-- Original SB ANB behaviour: recompute only on age, not every fraction of a second.
 		local recompute = options.recompute or self.PathRecompute or 5
 		if path:GetAge() > recompute and self.loco:IsOnGround() then
 			path:ResetAge()
@@ -31,6 +37,8 @@ function ENT:ControlPath(lookatgoal)
 		end
 	end
 
-	if self:MoveAlongPath(lookatgoal) then return true end
-	return false
+	-- true = arrived, false = failed, nil = still moving (do NOT return false here)
+	if self:MoveAlongPath(lookatgoal) then
+		return true
+	end
 end
