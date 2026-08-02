@@ -13,6 +13,7 @@ function ENT:BehaveUpdate(interval)
 	self.BehaveInterval = interval
 
 	self:StuckCheck()
+	self:HandlePathRemovedWhileOnLadder()
 
 	local disable = self:DisableBehaviour()
 
